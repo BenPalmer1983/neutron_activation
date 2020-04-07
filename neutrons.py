@@ -33,6 +33,7 @@ class g:
          'plots': 'wd/plots',  
          'plots_svg': 'wd/plots/svg', 
          'plots_eps': 'wd/plots/eps', 
+         'plots_png': 'wd/plots/png', 
          'xs': None,  
          'results': 'wd/results',  
          }
@@ -54,6 +55,13 @@ class g:
            'atoms_per_m3': 0.0,
            'atoms': 0.0,
            }
+           
+  dose = {
+         'distance': 2.0,
+         'area': 0.8,
+         'mass': 80,
+         'time': 300,
+         }
            
   experiment = {
                'flux': 1.0e10,
@@ -679,27 +687,39 @@ class neutrons:
     g.results_fh.write(neutrons.pad('Width:', 18) + ' ' + neutrons.pad(g.target['width'], 18) + '\n')
     g.results_fh.write(neutrons.pad('Depth:', 18) + ' ' + neutrons.pad(g.target['depth'], 18) + '\n')
     g.results_fh.write('\n')
-
+    g.results_fh.write(neutrons.pad('Volume:', 18) + ' ' + neutrons.pad(g.target['height'] * g.target['width'] * g.target['depth'], 18) + '\n')
+    g.results_fh.write(neutrons.pad('Density:', 18) + ' ' + neutrons.pad(g.inp['target']['density'], 18) + '\n')
+    g.results_fh.write(neutrons.pad('Mass:', 18) + ' ' + neutrons.pad(g.target['height'] * g.target['width'] * g.target['depth'] * g.inp['target']['density'], 18) + '\n')
     g.results_fh.write('\n')
-    g.results_fh.write('============================================================================' + '\n')
-    g.results_fh.write('BEFORE IRRADIATION' + '\n')
-    g.results_fh.write('============================================================================' + '\n')
-    for key in g.mat_tally.keys():
-      if(g.mat_tally[key]['atoms_start'] > 0.0):
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['protons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['nucleons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['atoms_start'], 18))
-        g.results_fh.write('\n')
-    
+    g.results_fh.write('\n')
+
 # Neutron Spectrum
     flux = g.experiment['flux']
     
-    x = numpy.linspace(1.0, 10.0, 10)
+# Default
+    x = numpy.linspace(1.0, 10.0, 20)
     y = neutrons.maxwell(x, 2.0)
     
     ne = x[:] * 1000000
-    nf = y[:] * flux
-    
+    nf = y[:] * (flux / sum(y))
+        
+    if('nspectra' in g.inp.keys() and g.inp['nspectra']['type'][0] == 'point'):
+# nspectra type=point,1000000
+      ne = [float(g.inp['nspectra']['type'][1])]
+      nf = [flux]
+    elif('nspectra' in g.inp.keys() and g.inp['nspectra']['type'][0] == 'mb'):
+# nspectra type=mb,0.001,10.0,2.0,1000000,50
+      mb_min = float(g.inp['nspectra']['type'][1])
+      mb_max = float(g.inp['nspectra']['type'][2])
+      mb_a = float(g.inp['nspectra']['type'][3])
+      mb_mult = float(g.inp['nspectra']['type'][4])
+      mb_points = int(g.inp['nspectra']['type'][5])
+      
+      x = numpy.linspace(mb_min, mb_max, mb_points)
+      y = neutrons.maxwell(x, mb_a)
+      ne = x[:] * mb_mult
+      nf = y[:] * (flux / sum(y))
+      
     g.results_fh.write('\n')
     g.results_fh.write('============================================================================' + '\n')
     g.results_fh.write('Neutron Flux' + '\n')
@@ -719,31 +739,9 @@ class neutrons:
     
 # IRRADIATE
     neutrons.irradiate()
-    
-    g.results_fh.write('\n')
-    g.results_fh.write('============================================================================' + '\n')
-    g.results_fh.write('AFTER IRRADIATION' + '\n')
-    g.results_fh.write('============================================================================' + '\n')
-    for key in g.mat_tally.keys():
-      if(g.mat_tally[key]['atoms_irradiate'] > 0.0):
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['protons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['nucleons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['atoms_irradiate'], 18))
-        g.results_fh.write('\n')
-    
-# COOL
-    neutrons.cool()
-
-    g.results_fh.write('\n')
-    g.results_fh.write('============================================================================' + '\n')
-    g.results_fh.write('AFTER COOLING' + '\n')
-    g.results_fh.write('============================================================================' + '\n')
-    for key in g.mat_tally.keys():
-      if(g.mat_tally[key]['atoms_cool'] > 0.0):
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['protons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['nucleons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['atoms_cool'], 18))
-        g.results_fh.write('\n')
+    neutrons.cool()   
+    neutrons.save_amounts()
+    neutrons.save_activities()
         
 # CALC GAMMAS
     neutrons.calc_gammas()
@@ -782,7 +780,7 @@ class neutrons:
       target_protons = g.mat_r[iso]['protons']
       target_nucleons = g.mat_r[iso]['nucleons']
       nd = g.mat_r[iso]['nd']
-      
+            
       rs = tendl.read_reactions(g.dirs['xs'], projectile_protons, projectile_neutrons, target_protons, target_nucleons)
       for r in rs:
         residual_protons = r['residual_protons']
@@ -798,38 +796,80 @@ class neutrons:
           g.mat_tally[tkey]['rr'] = g.mat_tally[tkey]['rr'] - rr
     
   @staticmethod 
-  def save_reaction_rates():    
-    g.results_fh.write('\n')
-    g.results_fh.write('============================================================================' + '\n')
-    g.results_fh.write('REACTION RATES' + '\n')
-    g.results_fh.write('============================================================================' + '\n')
+  def save_reaction_rates():  
+    cols = ['Reaction Rate','Number Density','Stability','Half-Life']
+    width = 22
+    d = {}
     for key in g.mat_tally.keys():
-      if(g.mat_tally[key]['rr'] != 0.0):     
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['protons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['nucleons'], 18))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['rr'], 25))
-        g.results_fh.write(neutrons.pad(g.mat_tally[key]['nd'], 25))
-        if(isotopes.get_stability(g.mat_tally[key]['protons'], g.mat_tally[key]['nucleons'])):
-          g.results_fh.write(neutrons.pad('STABLE', 16))
+      protons = g.mat_tally[key]['protons']
+      nucleons = g.mat_tally[key]['nucleons']
+      if(g.mat_tally[key]['rr'] != 0.0): 
+        if(protons not in d.keys()):
+          d[protons] = {} 
+        stability = 'Unstable'
+        if(isotopes.get_stability(protons, nucleons)):
+          stability = 'Stable'
+          half_life = ''
         else:
-          g.results_fh.write(neutrons.pad('UNSTABLE', 16))
-          g.results_fh.write(neutrons.pad(isotopes.get_half_life(g.mat_tally[key]['protons'], g.mat_tally[key]['nucleons']), 21))
-          
-        g.results_fh.write('\n')
+          half_life = isotopes.get_half_life(protons, nucleons)          
+        d[protons][nucleons] = [g.mat_tally[key]['rr'], g.mat_tally[key]['nd'], stability, half_life]
+    neutrons.save_data('REACTION RATES', cols, d)
+
+  @staticmethod 
+  def save_amounts():      
+    cols = ['Atoms Start','Atoms Irradiated', 'Atoms Cooled']
+    width = 22
+    d = {}
+    for key in g.mat_tally.keys():
+      protons = g.mat_tally[key]['protons']
+      nucleons = g.mat_tally[key]['nucleons']
+      if(g.mat_tally[key]['atoms_start'] > 0.0 or g.mat_tally[key]['atoms_irradiate'] > 0.0 or g.mat_tally[key]['atoms_cool'] > 0.0): 
+        if(protons not in d.keys()):
+          d[protons] = {} 
+        stability = 'Unstable'
+        if(isotopes.get_stability(protons, nucleons)):
+          stability = 'Stable'
+          half_life = ''
+        else:
+          half_life = isotopes.get_half_life(protons, nucleons)          
+        d[protons][nucleons] = [g.mat_tally[key]['atoms_start'],g.mat_tally[key]['atoms_irradiate'],g.mat_tally[key]['atoms_cool']]
+    neutrons.save_data('ISOTOPE AMOUNTS', cols, d)
+
+  @staticmethod 
+  def save_activities():      
+    i_points = g.experiment['i_points']
+    c_points = g.experiment['c_points']
+    cols = ['Activity Irradiated', 'Activity Cooled']
+    width = 22
+    d = {}
+    for key in g.mat_tally.keys():
+      protons = g.mat_tally[key]['protons']
+      nucleons = g.mat_tally[key]['nucleons']
+      if(g.mat_tally[key]['activity'][i_points-1, 1] > 0.0 and g.mat_tally[key]['activity'][i_points+c_points-2, 1] > 0.0): 
+        if(protons not in d.keys()):
+          d[protons] = {} 
+        stability = 'Unstable'
+        if(isotopes.get_stability(protons, nucleons)):
+          stability = 'Stable'
+          half_life = ''
+        else:
+          half_life = isotopes.get_half_life(protons, nucleons)          
+        d[protons][nucleons] = [g.mat_tally[key]['activity'][i_points-1, 1],g.mat_tally[key]['activity'][i_points+c_points-2, 1]]
+    neutrons.save_data('ISOTOPE ACTIVITIES', cols, d)
       
   @staticmethod  
   def irradiate():
     i_time = g.experiment['i_time']
 # IRRADIATE
-    for k in g.mat_tally.keys():
+    for k in g.mat_tally.keys():   
       if(g.mat_tally[k]['type'] == 'Target'):
-        g.mat_tally[k]['atoms_irradiate'] = g.mat_tally[k]['atoms_start'] - i_time * g.mat_tally[k]['rr']   
+        g.mat_tally[k]['atoms_irradiate'] = g.mat_tally[k]['atoms_irradiate'] + g.mat_tally[k]['atoms_start'] - i_time * g.mat_tally[k]['rr']          
       elif(g.mat_tally[k]['type'] == 'Residual'):
         decay = isotopes.isotope_activities(g.mat_tally[k]['protons'], g.mat_tally[k]['nucleons'], 0.0, g.mat_tally[k]['rr'], i_time)
         for p in decay.keys():
           for n in decay[p].keys():
             key = 1000 * p + n
-            g.mat_tally[key]['atoms_irradiate'] =  decay[p][n]
+            g.mat_tally[key]['atoms_irradiate'] = g.mat_tally[key]['atoms_irradiate'] + decay[p][n]
     
 # IRRADIATE OVER TIME
     for k in g.mat_tally.keys():
@@ -838,15 +878,15 @@ class neutrons:
         t = time[tn]
         if(t <= i_time):
           if(g.mat_tally[k]['type'] == 'Target'):
-            g.mat_tally[k]['amount'][tn, 1] = g.mat_tally[k]['atoms_start'] - t * g.mat_tally[k]['rr']               
+            g.mat_tally[k]['amount'][tn, 1] = g.mat_tally[k]['amount'][tn, 1] + g.mat_tally[k]['atoms_start'] - t * g.mat_tally[k]['rr']               
             
           elif(g.mat_tally[k]['type'] == 'Residual'):
             decay = isotopes.isotope_activities(g.mat_tally[k]['protons'], g.mat_tally[k]['nucleons'], 0.0, g.mat_tally[k]['rr'], t)
             for p in decay.keys():
               for n in decay[p].keys():
                 key = 1000 * p + n
-                g.mat_tally[key]['amount'][tn, 1] = decay[p][n]
-                g.mat_tally[key]['activity'][tn, 1] =  isotopes.get_activity(p, n, decay[p][n])
+                g.mat_tally[key]['amount'][tn, 1] = g.mat_tally[key]['amount'][tn, 1] + decay[p][n]
+                g.mat_tally[key]['activity'][tn, 1] =  g.mat_tally[key]['activity'][tn, 1] + isotopes.get_activity(p, n, decay[p][n])
                 g.experiment['activity'][tn, 1] = g.experiment['activity'][tn, 1] + isotopes.get_activity(p, n, decay[p][n])
     
   @staticmethod 
@@ -861,7 +901,7 @@ class neutrons:
         for p in decay.keys():
           for n in decay[p].keys():
             key = 1000 * p + n
-            g.mat_tally[key]['atoms_cool'] =  decay[p][n]
+            g.mat_tally[key]['atoms_cool'] = g.mat_tally[key]['atoms_cool'] + decay[p][n]
     
 # COOL OVER TIME
     for k in g.mat_tally.keys():
@@ -878,8 +918,8 @@ class neutrons:
             for p in decay.keys():
               for n in decay[p].keys():
                 key = 1000 * p + n
-                g.mat_tally[key]['amount'][tn, 1] =  decay[p][n]
-                g.mat_tally[key]['activity'][tn, 1] =  isotopes.get_activity(p, n, decay[p][n])
+                g.mat_tally[key]['amount'][tn, 1] = g.mat_tally[key]['amount'][tn, 1] + g.mat_tally[key]['amount'][tn, 1] + decay[p][n]
+                g.mat_tally[key]['activity'][tn, 1] = g.mat_tally[key]['activity'][tn, 1] + isotopes.get_activity(p, n, decay[p][n])
                 g.experiment['activity'][tn, 1] = g.experiment['activity'][tn, 1] + isotopes.get_activity(p, n, decay[p][n])
         
   @staticmethod
@@ -917,10 +957,12 @@ class neutrons:
     g.experiment['gammas'] = [] 
     g.experiment['gamma_energy'] = [] 
     g.experiment['gamma_power'] = [] 
+    g.experiment['gamma_dose'] = [] 
     for i in range(m_size):
       g.experiment['gammas'].append({})
       g.experiment['gamma_energy'].append(0.0)
       g.experiment['gamma_power'].append(0.0)
+      g.experiment['gamma_dose'].append(0.0)
     
   @staticmethod  
   def calc_gammas():    
@@ -943,6 +985,11 @@ class neutrons:
               if(gammas[i,0] not in g.experiment['gammas'][tn].keys()):
                 g.experiment['gammas'][tn][gammas[i,0]] = 0.0
               g.experiment['gammas'][tn][gammas[i,0]] = g.experiment['gammas'][tn][gammas[i,0]] + a * gammas[i,1]
+              
+    for tn in range(len(g.experiment['time_line'])):
+      a = 4.0 * 3.1415927 * g.dose['distance']
+      fraction = g.dose['area'] / a
+      g.experiment['gamma_dose'][tn] =  g.dose['time'] * (g.experiment['gamma_power'][tn] * fraction) / g.dose['mass']
 
   @staticmethod  
   def make_plots(): 
@@ -964,10 +1011,9 @@ class neutrons:
     plt.ylabel('Activity/Bq')
     plt.yscale('symlog', linthreshy=1000)
     plt.plot(g.experiment['activity'][:, 0], g.experiment['activity'][:, 1], color='k', ls='solid')
-
-    plt.savefig(g.dirs['plots_svg'] + '/activity.svg', format='svg')
-    plt.savefig(g.dirs['plots_eps'] + '/activity.eps', format='eps')
     
+    neutrons.plot_output('activity')
+
 # GAMMA ENERGY/J
 ################################
   
@@ -984,21 +1030,145 @@ class neutrons:
     plt.xlabel('Time/s')
     plt.ylabel('Power/Micro Watt')
     plt.plot(g.experiment['time_line'][:], g.experiment['gamma_power'][:], color='k', ls='solid')
-
-    plt.savefig(g.dirs['plots_svg'] + '/gamma_output.svg', format='svg')
-    plt.savefig(g.dirs['plots_eps'] + '/gamma_output.eps', format='eps')
     
+    neutrons.plot_output('gamma_output')
+    
+# GAMMA ENERGY/J
+################################
+  
+    plt.clf()
+    
+    plt.rc('font', family='serif')
+    plt.rc('xtick', labelsize='x-small')
+    plt.rc('ytick', labelsize='x-small')
+
+    fig, axs = plt.subplots(1, 1, figsize=(12,9))
+    fig.tight_layout(pad=5.0)
+    fig.suptitle('Estimated Dose vs Time (5 minutes exposure)')  
+    
+    plt.xlabel('Time/s')
+    plt.ylabel('Dose/micro Sieverts')
+    plt.plot(g.experiment['time_line'][:], g.experiment['gamma_dose'][:], color='k', ls='solid')
+
+    neutrons.plot_output('gamma_dose')
+    
+    tn = g.experiment['i_points'] - 1
+    neutrons.gamma_plot(tn)
+    neutrons.plot_output('gamma_lines_' + str(g.experiment['time_line'][tn]))
+    
+    tn = g.experiment['i_points'] + g.experiment['c_points'] - 2
+    neutrons.gamma_plot(tn)
+    neutrons.plot_output('gamma_lines_' + str(g.experiment['time_line'][tn]))
+    
+# ISOTOPE PLOTS
+################################
+    
+    i_points = g.experiment['i_points']
+    for key in g.mat_tally.keys():
+      if(g.mat_tally[key]['activity'][i_points, 1] > 0.0):
+        protons = g.mat_tally[key]['protons']
+        nucleons = g.mat_tally[key]['nucleons']
+        
+        file_name = str(protons) + '_' + isotopes.get_symbol(protons) + '_' + str(nucleons) + '_activity'
+    
+        plt.clf()
+    
+        plt.rc('font', family='serif')
+        plt.rc('xtick', labelsize='x-small')
+        plt.rc('ytick', labelsize='x-small')
+
+        fig, axs = plt.subplots(1, 1, figsize=(12,9))
+        fig.tight_layout(pad=5.0)
+        fig.suptitle('Activity vs Time ' + isotopes.get_symbol(protons) + ' ' + str(nucleons))  
+    
+        plt.xlabel('Time/s')
+        plt.ylabel('Activity/Bq')
+        if(max(g.mat_tally[key]['activity'][:, 1]) > 10000):
+          plt.yscale('symlog', linthreshy=1000)
+        else:  
+          plt.yscale('linear')          
+        plt.plot(g.mat_tally[key]['activity'][:, 0], g.mat_tally[key]['activity'][:, 1], color='k', ls='solid')    
+        neutrons.plot_output(file_name)
+
+  @staticmethod
+  def gamma_plot(tn):        
+    g_max = None
+    for gamma in g.experiment['gammas'][tn].keys():
+      if(g_max == None or g.experiment['gammas'][tn][gamma] > g_max):
+        g_max = g.experiment['gammas'][tn][gamma]
+    
+    box_x = []
+    box_y = []
+    for gamma in g.experiment['gammas'][tn].keys():
+      if(g.experiment['gammas'][tn][gamma] > 0.001 * g_max):
+        box_x.append(gamma)
+        box_y.append(g.experiment['gammas'][tn][gamma])
+        
+    w = (max(box_x) - min(box_x))/200
+    
+    plt.clf()
+    plt.rc('font', family='serif')
+    plt.rc('xtick', labelsize='x-small')
+    plt.rc('ytick', labelsize='x-small')
+    fig, axs = plt.subplots(1, 1, figsize=(12,9))
+    fig.tight_layout(pad=5.0)
+    fig.suptitle('Gamma Lines at t=' + str(g.experiment['time_line'][tn])) 
+    axs.bar(box_x, box_y, color=(0.2, 0.2, 0.2, 0.6), width=w) 
+    axs.set_xlabel('Gamma Energy/eV')
+    axs.set_ylabel('Activity/Bq')
+    
+  @staticmethod
+  def plot_output(file_name):
+    plt.savefig(g.dirs['plots_svg'] + '/' + file_name + '.svg', format='svg')
+    plt.savefig(g.dirs['plots_eps'] + '/' + file_name + '.eps', format='eps')
+    plt.savefig(g.dirs['plots_png'] + '/' + file_name + '.png', format='png')
+    plt.close()
+
   @staticmethod  
   def pad(inp, length=12):
     if(inp == None):
-      inp = ''
+      inp = ''     
     if(type(inp) == float):
-      inp = round(inp, length - 5)
+      inp = round(inp, 10)
     inp = str(inp)
     while(len(inp) < length):
       inp = inp + ' '
     return inp
+      
+  @staticmethod  
+  def write_line(inp, length=12):
+    line = ''
+    for i in inp:
+      line = line + neutrons.pad(i, length)
+    return line + '\n'
+    
+  @staticmethod
+  def save_data(table_name, cols, data, col_width=25):
+    d = {}
+    for p in data.keys():
+      if(int(p) not in d):
+        d[int(p)] = {}
+      for n in data[p].keys():
+        d[int(p)][int(n)] = data[p][n]
+        
+#  for key in sorted(wordsFreqDict.keys()) :
+    g.results_fh.write('\n')
+    g.results_fh.write('====================================================================================================================================' + '\n')
+    g.results_fh.write(str(table_name) + '\n')
+    g.results_fh.write('====================================================================================================================================' + '\n')
+    
+    pcols = ['Protons','Nucleons'] + cols
+    g.results_fh.write(neutrons.write_line(pcols, col_width))
 
+    for p in sorted(d):
+      for n in sorted(d[p].keys()):      
+        line = [str(p) + ' ' + isotopes.get_symbol(p),str(n)]
+        for i in d[p][n]:
+          line.append(i)  
+        g.results_fh.write(neutrons.write_line(line, col_width))
+    g.results_fh.write('\n')
+    g.results_fh.write('\n')
+        
 ###########################################
 #  CLASS tend
 ###########################################
@@ -1260,12 +1430,14 @@ class tendl:
   def get_xs(dir, pprotons, pneutrons, tprotons, tnucleons, rprotons, rnucleons, energy): 
     d = tendl.read_xs(dir, pprotons, pneutrons, tprotons, tnucleons, rprotons, rnucleons)
     e_min = min(d[:,0])
-    e_max = max(d[:,0])
-    
+    e_max = max(d[:,0])    
     if(energy<e_min or energy>e_max):
       return 0.0     
-      
-    return interp.interpolate(energy, d[:,0], d[:,1])
+    try:
+      xs = float(interp.trap(energy, d[:,0], d[:,1]))
+    except: 
+      xs = 0.0
+    return xs
 
 ###########################################
 #  CLASS isotope

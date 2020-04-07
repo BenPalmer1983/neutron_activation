@@ -11,6 +11,7 @@ class g:
          'plots': 'wd/plots',  
          'plots_svg': 'wd/plots/svg', 
          'plots_eps': 'wd/plots/eps', 
+         'plots_png': 'wd/plots/png', 
          'xs': None,  
          'results': 'wd/results',  
          }
@@ -33,6 +34,13 @@ class g:
            'atoms_per_m3': 0.0,
            'atoms': 0.0,
            }
+           
+  dose = {
+         'distance': 2.0,
+         'area': 0.8,
+         'mass': 80,
+         'time': 300,
+         }
            
   experiment = {
                'flux': 1.0e10,

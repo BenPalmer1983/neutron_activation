@@ -1,0 +1,4 @@
+xs_dir path='/cloud/Code/python/neutrons/z'
+nspectra type=mb,0.1,10.0,2.0,1000000,20
+target depth=15 height=70 width=20 units=mm isotopes=cr,ni,c,si,mn,p,s,ti,fe rel_mass=19.0,12.0,0.1,1.0,2.0,0.045,0.015,0.4,65.44 density=8000
+experiment flux=2.5e7 i_time=36000 c_time=600

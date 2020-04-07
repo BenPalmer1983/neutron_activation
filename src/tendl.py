@@ -271,12 +271,14 @@ class tendl:
   def get_xs(dir, pprotons, pneutrons, tprotons, tnucleons, rprotons, rnucleons, energy): 
     d = tendl.read_xs(dir, pprotons, pneutrons, tprotons, tnucleons, rprotons, rnucleons)
     e_min = min(d[:,0])
-    e_max = max(d[:,0])
-    
+    e_max = max(d[:,0])    
     if(energy<e_min or energy>e_max):
       return 0.0     
-      
-    return interp.interpolate(energy, d[:,0], d[:,1])
+    try:
+      xs = float(interp.trap(energy, d[:,0], d[:,1]))
+    except: 
+      xs = 0.0
+    return xs
 
 
 
