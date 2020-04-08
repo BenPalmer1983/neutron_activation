@@ -537,10 +537,10 @@ class neutrons:
 
     fig, axs = plt.subplots(1, 1, figsize=(12,9))
     fig.tight_layout(pad=5.0)
-    fig.suptitle('Estimated Dose vs Time (5 minutes exposure)')  
+    fig.suptitle('Estimated Absorbed Dose vs Time (1 minute exposure)')  
     
     plt.xlabel('Time/s')
-    plt.ylabel('Dose/micro Sieverts')
+    plt.ylabel('Dose/micro Gy')
     plt.plot(g.experiment['time_line'][:], g.experiment['gamma_dose'][:], color='k', ls='solid')
 
     neutrons.plot_output('gamma_dose')

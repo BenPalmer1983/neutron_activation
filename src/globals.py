@@ -39,7 +39,7 @@ class g:
          'distance': 2.0,
          'area': 0.8,
          'mass': 80,
-         'time': 300,
+         'time': 60,
          }
            
   experiment = {
